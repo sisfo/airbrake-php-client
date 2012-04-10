@@ -67,7 +67,7 @@ if ($apiKey) {
 
 			// Track the error. Note that this call will log messages
 			// to the error console if AirbrakeNotifier::$debugMode is true
-			$noticeId = $notifier->notify($message, $backtrace, $session);
+			$noticeId = $notifier->notify($message, 'ShutdownError', $backtrace, $session);
 
 			if ($noticeId) {
 				die("Your error has been successfully logged, verify by visiting your Airbrake dashboard. Notice ID {$noticeId}\r\n");

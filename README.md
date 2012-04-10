@@ -42,10 +42,11 @@ try {
     $noticeId = $notifier->notifyException($e);
 
     # you can also be explicit...
-    $noticeId = $notifier->notify('Something bad happened', $e->getTrace(), array(
+    $trace = AirbrakeNotifier::getFixedTrace($e->getTrace());
+    $noticeId = $notifier->notify('Something bad happened!', 'SomeExplicitError', $trace, array(
         'some_info' => 'both functions take an optional final parameter',
         'more_info' => 'which can be used to add extra information to the notice!',
-        'note' => 'you can find this extra information in the session on Airbrake'
+        'note' => 'you can find this EXTRA_DATA of the params on Airbrake'
     ));
 
 }
