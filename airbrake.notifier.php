@@ -2,7 +2,7 @@
 /**
  * Airbrake Notifier Client for PHP
  * @author Jonathan Azoff
- * @date 04/10/2012
+ * @date 05/31/2012
  * @homepage https://github.com/rentjuice/airbrake-php-client
  * @reference http://help.airbrake.io/kb/api-2/notifier-api-version-22
  */
@@ -70,7 +70,7 @@ class AirbrakeNotifier {
 	  * Tracks an exception against the Airbrake Notifier API
 	  * @param Exception $exception The exception to track
 	  * @param array $extra_data An optional associative array of extra key/value pairs to pass to the API
-	  * @return string|bool The created notice ID returned by the API, false if an error occurred
+	  * @return string The created notice hash
 	  */
 	 public function notifyException(Exception $exception, array $extra_data = array()) {
 		 return $this->notify($exception->getMessage(), get_class($exception), self::getFixedTrace($exception), $extra_data);
@@ -83,20 +83,18 @@ class AirbrakeNotifier {
 	 * @param array $backtrace The backtrace for the error, formatted like the output of debug_backtrace()
 	 * @param array $extra_data An optional associative array of extra key/value pairs to pass to the API
 	 * @see http://php.net/manual/en/function.debug-backtrace.php for info on how to format the trace
-	 * @return array The notice ID and error ID
+	 * @return string The created notice hash
 	 */
 	public function notify($message, $exception_type, array $backtrace = array(), array $extra_data = array()) {
 		$notice   = self::createNoticeXml($message, $exception_type, $backtrace, $extra_data);
 		$version  = intval(self::API_VERSION);
-		list($info, $response) = $this->execute("/notifier_api/v{$version}/notices", $notice);
+		list($info, $response) = $this->execute("notifier_api/v{$version}/notices", $notice);
 		$noticeUrl = $info->success ? (string)$response->url[0] : '';
-		$noticeId = $info->success ? (string)$response->id[0] : '';
-		preg_match('/errors\/(\d+)\//', $noticeUrl, $urlParts);
-		$errorId = $noticeId ? fetch($urlParts, 1) : '';
+		$noticeHash = $info->success ? (string)$response->id[0] : '';
 		if (self::$debugMode && $noticeUrl) {
 			error_log("AIRBRAKE NOTICE CREATED: {$noticeUrl}");
 		}
-		return array($errorId, $noticeId);
+		return $noticeHash;
 	}
 
 	/**
@@ -200,7 +198,7 @@ class AirbrakeNotifier {
 		}
 
 		// track the session that triggered the error (if any)
-		if ($_SESSION) {
+		if (isset($_SESSION) && count($_SESSION)) {
 			$extraData = $request->addChild('session');
 			self::serializeVar($extraData, $_SESSION);
 		}
@@ -280,27 +278,52 @@ class AirbrakeNotifier {
 	}
 
 	/**
-	  * Returns a more airbrake-ish backtrace
-	  *
-	  * php has the nasty habit (really? a nasty habit? Unthinkable!) of
-	  *    a) not including the actual spot of the error in the trace
-	  *    b) naming the name of the function that's about to be called
-	  *       instead of the one currently being executed.
-	  * this fixes up the trace in order to get it into a state more useful
-	  * in the contect of airbrake
-	  *
-	  * @param Exception $e the exception to get the trace for
-	  * @return array The cleaned up backtrace
-	  */
-	 public static function getFixedTrace(Exception $e){
-		 $t = $e->getTrace();
-		 array_unshift($t, array('file' => $e->getFile(), 'line' => $e->getLine()));
-		 for($i = 0; $i < count($t); $i++){
-			 $t[$i]['function'] = $t[$i+1]['function'];
-			 $t[$i]['class'] = $t[$i+1]['class'];
-		 }
-		 return $t;
-	 }
+	 * Returns a more airbrake-ish backtrace
+	 *
+	 * php has the nasty habit (really? a nasty habit? Unthinkable!) of
+	 *    a) not including the actual spot of the error in the trace
+	 *    b) naming the name of the function that's about to be called
+	 *       instead of the one currently being executed.
+	 * this fixes up the trace in order to get it into a state more useful
+	 * in the contect of airbrake
+	 *
+	 * @param Exception $e the exception to get the trace for
+	 * @return array The cleaned up backtrace
+	 */
+	public static function getFixedTrace(Exception $e){
+		$t = $e->getTrace();
+		array_unshift($t, array('file' => $e->getFile(), 'line' => $e->getLine()));
+		for($i = 0; $i < count($t); $i++){
+			$t[$i]['function'] = $t[$i+1]['function'];
+			$t[$i]['class'] = $t[$i+1]['class'];
+		}
+		return $t;
+	}
+
+	/**
+	 * Parses the airbrake.io locator response to determine the notice metadata from airbrake.io
+	 * Airbrake's latest changes obfuscated this data away by returning only a locator hash. This
+	 * call uses the locator to figure out the original data.
+	 * @param $hash The locator hash provided by the call to AirbrakeNotifier#notify
+	 * @return stdClass A simple class exposing an errorId and noticeId
+	 */
+	public static function getNoticeMetadata($hash) {
+		$response = '';
+		$hash = trim($hash);
+		if (strlen($hash)) {
+			$transport = curl_init();
+			curl_setopt($transport, CURLOPT_URL, "http://airbrake.io/locate/{$hash}");
+			curl_setopt($transport, CURLOPT_HEADER, TRUE);
+			curl_setopt($transport, CURLOPT_FOLLOWLOCATION, FALSE);
+			curl_setopt($transport, CURLOPT_RETURNTRANSFER, TRUE);
+			$response = curl_exec($transport);
+		}
+		$metadata = new stdClass;
+		$metadata->errorId = preg_match('#errors/(\d+)#', $response, $matches) ? $matches[1] : '';
+		$metadata->noticeId = preg_match('#notices/(\d+)#', $response, $matches) ? $matches[1] : '';
+		$metadata->isValid = is_numeric($metadata->errorId) && is_numeric($metadata->noticeId);
+		return $metadata;
+	}
 
 	/**
 	 * A utility function to get a value, under a key in an array
