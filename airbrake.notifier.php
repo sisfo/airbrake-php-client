@@ -9,7 +9,7 @@
 class AirbrakeNotifier {
 
 	const NOTIFIER_NAME     = 'Airbrake Notifier Client for PHP';
-	const NOTIFIER_VERSION  = '1.1.0';
+	const NOTIFIER_VERSION  = '1.2.0';
 	const NOTIFIER_URL      = 'https://github.com/rentjuice/airbrake-php-client';
 
 	const API_BASE_URL      = 'http://airbrake.io';
